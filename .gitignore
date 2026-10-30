@@ -19,3 +19,4 @@ statistics.json
 *.rar
 *.zip
 changes.patch
+data/

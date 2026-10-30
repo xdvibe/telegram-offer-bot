@@ -328,6 +328,14 @@ class UserProfile:
 
 # ==================== DATABASE (In-Memory) ====================
 
+def data_file_path(filename: str) -> str:
+    """Use an optional persistent host directory while preserving local installs."""
+    directory = os.getenv("BOT_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
+    directory = os.path.abspath(os.path.expanduser(directory))
+    os.makedirs(directory, exist_ok=True)
+    return os.path.join(directory, filename)
+
+
 class Database:
     """In-memory database for bot data"""
     
@@ -335,25 +343,16 @@ class Database:
         self.users: Dict[int, UserProfile] = {}
         self.offers: Dict[str, DataOffer] = {}
         self.offer_counter = 0
-        self.business_connections_file = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "business_connections.json",
-        )
+        self.business_connections_file = data_file_path("business_connections.json")
         self.business_connections: Dict[str, str] = {}
         self._load_business_connections()
-        self.access_file = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "access_users.json"
-        )
+        self.access_file = data_file_path("access_users.json")
         self.access_users: Dict[str, dict] = {}
         self._load_access_users()
-        self.admins_file = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "admins.json"
-        )
+        self.admins_file = data_file_path("admins.json")
         self.admin_ids = set(Config.ADMIN_IDS) | set(Config.LEADER_IDS)
         self._load_admins()
-        self.statistics_file = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "statistics.json"
-        )
+        self.statistics_file = data_file_path("statistics.json")
         self.statistics = self._statistics_defaults()
         self._load_statistics()
 
@@ -2292,10 +2291,7 @@ class MainHandler:
 
 
     def _business_state_file(self):
-        return os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "business_connection_states.json",
-        )
+        return data_file_path("business_connection_states.json")
 
     def _load_business_states(self):
         if hasattr(self, "_business_states"):
@@ -2592,7 +2588,9 @@ class MainHandler:
         # GET BOT INFO
         import requests
         me_url = f"https://api.telegram.org/bot{Config.BOT_TOKEN}/getMe"
-        me_resp = requests.get(me_url).json()
+        me_resp = requests.get(me_url, timeout=30).json()
+        if not me_resp.get("ok"):
+            raise SystemExit("Telegram rejected BOT_TOKEN. Check your hosting environment settings.")
         
         print(f"\n{'='*60}")
         print("BOT INFO:")
@@ -2602,12 +2600,14 @@ class MainHandler:
         
         # DELETE WEBHOOK
         webhook_url = f"https://api.telegram.org/bot{Config.BOT_TOKEN}/deleteWebhook?drop_pending_updates=false"
-        webhook_resp = requests.get(webhook_url).json()
+        webhook_resp = requests.get(webhook_url, timeout=30).json()
+        if not webhook_resp.get("ok"):
+            raise SystemExit("Telegram could not remove the webhook. Long polling cannot start.")
         print(f"Webhook deleted: {webhook_resp}")
         
         # CHECK WEBHOOK INFO
         webhook_info_url = f"https://api.telegram.org/bot{Config.BOT_TOKEN}/getWebhookInfo"
-        webhook_info = requests.get(webhook_info_url).json()
+        webhook_info = requests.get(webhook_info_url, timeout=30).json()
         print(f"Webhook info: {webhook_info}\n")
         
         # Create application
@@ -2669,9 +2669,23 @@ class MainHandler:
 _SINGLE_INSTANCE_LOCK = None
 
 
+def configuration_errors() -> List[str]:
+    """Report missing deployment settings without printing their values."""
+    errors = []
+    if not Config.BOT_TOKEN or Config.BOT_TOKEN == "YOUR_BOT_TOKEN":
+        errors.append("BOT_TOKEN")
+    if not Config.OWNER_IDS or any(uid <= 0 for uid in Config.OWNER_IDS):
+        errors.append("OWNER_IDS")
+    if not Config.REQUIRED_CHANNEL or Config.REQUIRED_CHANNEL == "@your_channel":
+        errors.append("REQUIRED_CHANNEL")
+    if not Config.DEFAULT_RECIPIENT_USERNAME or Config.DEFAULT_RECIPIENT_USERNAME == "@your_username":
+        errors.append("DEFAULT_RECIPIENT_USERNAME")
+    return errors
+
+
 def acquire_single_instance_lock():
     """Prevent two bot workers from polling and handling the same command."""
-    lock_path = os.path.abspath(__file__) + ".lock"
+    lock_path = data_file_path("bot.lock")
     lock_file = open(lock_path, "a+b")
     lock_file.seek(0, os.SEEK_END)
     if lock_file.tell() == 0:
@@ -2697,14 +2711,13 @@ def acquire_single_instance_lock():
 def main():
     """Main entry point"""
     global _SINGLE_INSTANCE_LOCK
-    if not Config.BOT_TOKEN:
-        print("Set the BOT_TOKEN environment variable before starting the bot.")
-        return
+    errors = configuration_errors()
+    if errors:
+        raise SystemExit("Set hosting environment variables: " + ", ".join(errors))
     try:
         _SINGLE_INSTANCE_LOCK = acquire_single_instance_lock()
     except RuntimeError as exc:
-        print(f"STARTUP BLOCKED: {exc}")
-        return
+        raise SystemExit(f"STARTUP BLOCKED: {exc}") from exc
 
     handler = MainHandler()
     handler.run()

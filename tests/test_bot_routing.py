@@ -91,6 +91,7 @@ class RoutingTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        self.enterContext(patch.dict("os.environ", {"BOT_DATA_DIR": self.temp.name}))
         self.enterContext(patch.object(socket.socket, "connect", side_effect=AssertionError("Network disabled")))
         self.enterContext(patch.object(socket, "create_connection", side_effect=AssertionError("Network disabled")))
         self.enterContext(patch.object(bot_module.Config, "OWNER_IDS", {101}))
