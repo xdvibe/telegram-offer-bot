@@ -2553,6 +2553,9 @@ class MainHandler:
             except Exception as e:
                 print(f"[BUSINESS WATCH LOOP ERROR] {e}")
 
+            # Yield even when there are no saved connections or a check fails.
+            await asyncio.sleep(10)
+
     async def _raw_botapi_polling(self, allowed_updates):
         """
         Poll Telegram Bot API directly.
