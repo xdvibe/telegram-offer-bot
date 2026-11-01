@@ -2553,6 +2553,8 @@ class MainHandler:
             except Exception as e:
                 print(f"[BUSINESS WATCH LOOP ERROR] {e}")
 
+            await asyncio.sleep(5)
+
     async def _raw_botapi_polling(self, allowed_updates):
         """
         Poll Telegram Bot API directly.
