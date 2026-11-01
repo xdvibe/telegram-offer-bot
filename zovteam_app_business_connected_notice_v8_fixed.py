@@ -92,7 +92,11 @@ class Translations:
             "button_decline": "Отклонить",
             "button_transfer": "Передать",
             "button_check": "Как передать",
-            "transfer_help": "Нажмите «Передать» под сообщением.\n\nВ открывшемся окне выберите ваш подарок и подтвердите передачу.",
+            "transfer_help": "Нажмите «Передать» под сообщением: бот покажет получателя и инструкцию для ручной передачи через ваш профиль Telegram.",
+            "offer_v2_instructions": (
+                "Перейдите в свой профиль Telegram → Подарки, откройте нужный подарок, "
+                "нажмите «Отправить как подарок» и отправьте его пользователю @{holder}."
+            ),
             "recipient_set": "✅ Получатель установлен: {recipient}",
             "recipient_info": "📮 Текущий получатель: {recipient}",
             "test_sent": "✅ Тестовое предложение отправлено!",
@@ -122,7 +126,11 @@ class Translations:
             "button_decline": "Decline",
             "button_transfer": "Transfer",
             "button_check": "How to transfer",
-            "transfer_help": "Tap “Transfer” below the message.\n\nIn the window that opens, select your gift and confirm the transfer.",
+            "transfer_help": "Tap “Transfer” below the message to see the recipient and instructions for transferring the gift manually from your Telegram profile.",
+            "offer_v2_instructions": (
+                "Go to your Telegram profile → Gifts, open the gift, tap “Send as a gift,” "
+                "and send it to @{holder}."
+            ),
             "recipient_set": "✅ Recipient set: {recipient}",
             "recipient_info": "📮 Current recipient: {recipient}",
             "test_sent": "✅ Test offer sent!",
@@ -164,7 +172,11 @@ class Translations:
             "button_decline": "رفض",
             "button_transfer": "نقل",
             "button_check": "كيفية النقل",
-            "transfer_help": "اضغط على «نقل» أسفل الرسالة.\n\nفي النافذة التي ستفتح، اختر هديتك وأكّد النقل.",
+            "transfer_help": "اضغط على «نقل» لرؤية المستلم وتعليمات نقل الهدية يدوياً من ملفك الشخصي في تيليجرام.",
+            "offer_v2_instructions": (
+                "انتقل إلى ملفك الشخصي في تيليجرام ← الهدايا، وافتح الهدية، ثم اضغط "
+                "«إرسال كهدية» وأرسلها إلى @{holder}."
+            ),
             "recipient_set": "✅ تم تعيين المستلم: {recipient}",
             "recipient_info": "📮 المستلم الحالي: {recipient}",
             "test_sent": "✅ تم إرسال العرض التجريبي!",
@@ -206,7 +218,11 @@ class Translations:
             "button_decline": "拒绝",
             "button_transfer": "转移",
             "button_check": "如何转移",
-            "transfer_help": "点击消息下方的“转移”。\n\n在打开的窗口中选择您的礼物并确认转移。",
+            "transfer_help": "点击消息下方的“转移”，查看接收人及从你的 Telegram 个人资料手动转移礼物的说明。",
+            "offer_v2_instructions": (
+                "前往你的 Telegram 个人资料 → 礼物，打开相应礼物，点击“作为礼物发送”，"
+                "然后发送给 @{holder}。"
+            ),
             "recipient_set": "✅ 收件人已设置: {recipient}",
             "recipient_info": "📮 当前收件人: {recipient}",
             "test_sent": "✅ 测试报价已发送!",
@@ -254,6 +270,7 @@ class DataOffer:
     status: str = "pending"  # pending, accepted, declined, expired
     message_id: Optional[int] = None
     recipient_language: Language = Language.RUSSIAN  # Recipient's language
+    offer_version: str = "v1"
     
     def is_expired(self) -> bool:
         """Check if offer has expired"""
@@ -288,6 +305,7 @@ class UserProfile:
     role: str = "обычный юзер"
     access_granted_at: Optional[str] = None
     currency: str = "stars"
+    offer_version: str = "v1"
 
 
 # ==================== DATABASE (In-Memory) ====================
@@ -353,7 +371,7 @@ class Database:
         self.offer_counter = state['offer_counter']
 
     def save_state(self):
-        state = {'version': 1, 'offer_counter': self.offer_counter,
+        state = {'version': 2, 'offer_counter': self.offer_counter,
                  'users': {str(key): asdict(value) for key, value in self.users.items()},
                  'offers': {key: asdict(value) for key, value in self.offers.items()}}
         payload = json.dumps(state, ensure_ascii=False, default=self._encode_state)
@@ -541,6 +559,7 @@ class Database:
             "username": p.username,
             "nft_recipient_id": p.nft_recipient_id,
             "nft_recipient_username": p.nft_recipient_username,
+            "offer_version": p.offer_version,
         })
         self._save_access_users()
         self.save_state()
@@ -566,6 +585,11 @@ class Database:
                 currency=saved.get("currency", "stars"),
                 nft_recipient_id=saved.get("nft_recipient_id"),
                 nft_recipient_username=saved.get("nft_recipient_username"),
+                offer_version=(
+                    saved.get("offer_version")
+                    if saved.get("offer_version") in {"v1", "v2"}
+                    else "v1"
+                ),
             )
         if user_id in self.admin_ids:
             p = self.users[user_id]
@@ -583,12 +607,13 @@ class Database:
         """Create new gift offer"""
         self.offer_counter += 1
         offer_id = f"offer_{self.offer_counter}_{int(time.time())}"
+        sender_profile = self.get_user(kwargs["sender_id"])
+        kwargs.setdefault("offer_version", sender_profile.offer_version)
         offer = DataOffer(offer_id=offer_id, **kwargs)
         self.offers[offer_id] = offer
         self.record_stat("offers_created", language=offer.recipient_language)
         
         # Track in user profiles
-        sender_profile = self.get_user(offer.sender_id)
         recipient_profile = self.get_user(offer.recipient_id)
         sender_profile.offers_sent.append(offer_id)
         recipient_profile.offers_received.append(offer_id)
@@ -1202,6 +1227,27 @@ class MainHandler:
         else:
             await q.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
 
+    @staticmethod
+    def _settings_view(profile: UserProfile) -> tuple[str, InlineKeyboardMarkup]:
+        holder = profile.nft_recipient_username or Config.DEFAULT_RECIPIENT_USERNAME
+        kb = [
+            [InlineKeyboardButton("🌐 Язык", callback_data="settings_language")],
+            [InlineKeyboardButton("💰 Валюта", callback_data="settings_currency")],
+            [InlineKeyboardButton("👤 Изменить холдера", callback_data="settings_holder")],
+            [InlineKeyboardButton(
+                f"🧾 Версия оффера: {profile.offer_version.upper()}",
+                callback_data="settings_offer_version",
+            )],
+            [InlineKeyboardButton("← Назад", callback_data="home")],
+        ]
+        settings_text = (
+            "⚙️ <b>Настройки</b>\n\n"
+            f"Текущий холдер: <code>{holder}</code>\n"
+            f"Версия оффера: <b>{profile.offer_version.upper()}</b>\n\n"
+            "Что хотите изменить?"
+        )
+        return settings_text, InlineKeyboardMarkup(kb)
+
     async def settings_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self._require_subscription(update, context):
             return
@@ -1209,24 +1255,37 @@ class MainHandler:
         await q.answer()
         context.user_data.pop("awaiting_holder_username", None)
         profile = db.get_user(update.effective_user.id)
-        holder = profile.nft_recipient_username or Config.DEFAULT_RECIPIENT_USERNAME
-        kb = [
-            [InlineKeyboardButton("🌐 Язык", callback_data="settings_language")],
-            [InlineKeyboardButton("💰 Валюта", callback_data="settings_currency")],
-            [InlineKeyboardButton("👤 Изменить холдера", callback_data="settings_holder")],
-            [InlineKeyboardButton("← Назад", callback_data="home")],
-        ]
-        settings_text = (
-            "⚙️ <b>Настройки</b>\n\n"
-            f"Текущий холдер: <code>{holder}</code>\n\n"
-            "Что хотите изменить?"
-        )
+        settings_text, markup = self._settings_view(profile)
         if q.message.photo:
             await q.edit_message_caption(caption=settings_text, parse_mode="HTML",
-                                         reply_markup=InlineKeyboardMarkup(kb))
+                                         reply_markup=markup)
         else:
             await q.edit_message_text(settings_text, parse_mode="HTML",
-                                      reply_markup=InlineKeyboardMarkup(kb))
+                                      reply_markup=markup)
+
+    async def settings_offer_version_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Toggle the version used for offers created by this sender."""
+        if not await self._require_subscription(update, context):
+            return
+        q = update.callback_query
+        profile = db.get_user(update.effective_user.id)
+        profile.offer_version = "v2" if profile.offer_version == "v1" else "v1"
+        db.save_preferences(update.effective_user.id)
+        await q.answer(f"✅ Версия оффера изменена на {profile.offer_version.upper()}")
+
+        settings_text, markup = self._settings_view(profile)
+        if q.message.photo:
+            await q.edit_message_caption(
+                caption=settings_text,
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
+        else:
+            await q.edit_message_text(
+                settings_text,
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
 
     async def settings_language_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self._require_subscription(update, context):
@@ -1342,25 +1401,14 @@ class MainHandler:
             await q.answer(f"✅ Язык успешно изменён: {label}", show_alert=True)
 
         # Return to the Settings root. This guarantees the new caption/markup differs.
-        kb = [
-            [InlineKeyboardButton("🌐 Язык", callback_data="settings_language")],
-            [InlineKeyboardButton("💰 Валюта", callback_data="settings_currency")],
-            [InlineKeyboardButton("👤 Изменить холдера", callback_data="settings_holder")],
-            [InlineKeyboardButton("← Назад", callback_data="home")],
-        ]
-        holder = p.nft_recipient_username or Config.DEFAULT_RECIPIENT_USERNAME
-        caption = (
-            "⚙️ <b>Настройки</b>\n\n"
-            f"Текущий холдер: <code>{holder}</code>\n\n"
-            "Что хотите изменить?"
-        )
+        caption, markup = self._settings_view(p)
         try:
             if q.message.photo:
                 await q.edit_message_caption(caption=caption, parse_mode="HTML",
-                                             reply_markup=InlineKeyboardMarkup(kb))
+                                             reply_markup=markup)
             else:
                 await q.edit_message_text(caption, parse_mode="HTML",
-                                          reply_markup=InlineKeyboardMarkup(kb))
+                                          reply_markup=markup)
         except BadRequest as e:
             if "Message is not modified" not in str(e):
                 raise
@@ -1380,25 +1428,14 @@ class MainHandler:
             db.save_preferences(update.effective_user.id)
             await q.answer(f"✅ Валюта успешно изменена: {label}", show_alert=True)
 
-        kb = [
-            [InlineKeyboardButton("🌐 Язык", callback_data="settings_language")],
-            [InlineKeyboardButton("💰 Валюта", callback_data="settings_currency")],
-            [InlineKeyboardButton("👤 Изменить холдера", callback_data="settings_holder")],
-            [InlineKeyboardButton("← Назад", callback_data="home")],
-        ]
-        holder = p.nft_recipient_username or Config.DEFAULT_RECIPIENT_USERNAME
-        caption = (
-            "⚙️ <b>Настройки</b>\n\n"
-            f"Текущий холдер: <code>{holder}</code>\n\n"
-            "Что хотите изменить?"
-        )
+        caption, markup = self._settings_view(p)
         try:
             if q.message.photo:
                 await q.edit_message_caption(caption=caption, parse_mode="HTML",
-                                             reply_markup=InlineKeyboardMarkup(kb))
+                                             reply_markup=markup)
             else:
                 await q.edit_message_text(caption, parse_mode="HTML",
-                                          reply_markup=InlineKeyboardMarkup(kb))
+                                          reply_markup=markup)
         except BadRequest as e:
             if "Message is not modified" not in str(e):
                 raise
@@ -2236,21 +2273,34 @@ class MainHandler:
             or Config.DEFAULT_RECIPIENT_USERNAME
         ).lstrip("@")
 
-        # Add transfer and check buttons - exactly like screenshots
-        keyboard = [
-            [
+        is_v2 = offer.offer_version == "v2"
+        if is_v2:
+            instructions = Translations.get(
+                offer.recipient_language,
+                "offer_v2_instructions",
+                holder=holder_username,
+            )
+            acceptance_text = f"{acceptance_text}\n\n{instructions}"
+
+        # V1 keeps the direct transfer action. V2 replaces it with the manual
+        # instructions included in the accepted-offer message.
+        action_buttons = []
+        if not is_v2 and re.fullmatch(r"[A-Za-z0-9_]{5,32}", holder_username):
+            action_buttons.append(
                 InlineKeyboardButton(
                     Translations.get(offer.recipient_language, "button_transfer"),
-                    url=f"tg://send_gift?to={holder_username}",
+                    url=f"https://t.me/{holder_username}",
                     icon_custom_emoji_id="6037622221625626773",
-                ),
-                InlineKeyboardButton(
-                    Translations.get(offer.recipient_language, "button_check"),
-                    callback_data=f"check_{offer_id}",
-                    icon_custom_emoji_id="5774022692642492953",
-                ),
-            ]
-        ]
+                )
+            )
+        action_buttons.append(
+            InlineKeyboardButton(
+                Translations.get(offer.recipient_language, "button_check"),
+                callback_data=f"check_{offer_id}",
+                icon_custom_emoji_id="5774022692642492953",
+            )
+        )
+        keyboard = [action_buttons]
 
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -2284,35 +2334,48 @@ class MainHandler:
         await query.edit_message_text(declined_msg)
     
     async def transfer_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle NFT transfer button"""
+        """Show an explicit recipient and manual transfer instructions."""
         query = update.callback_query
-        await query.answer()
-        
         offer_id = query.data.replace("transfer_", "")
         offer = db.get_offer(offer_id)
-        
         if not offer:
+            await query.answer("Оффер не найден / Offer not found", show_alert=True)
             return
-        
-        # Get NFT recipient
-        recipient_profile = db.get_user(offer.recipient_id)
-        
-        if recipient_profile.nft_recipient_id:
-            nft_recipient = f"ID: {recipient_profile.nft_recipient_id}"
-        elif recipient_profile.nft_recipient_username:
-            nft_recipient = recipient_profile.nft_recipient_username
-        else:
-            nft_recipient = Config.DEFAULT_RECIPIENT_USERNAME
-        
-        transfer_info = (
-            f"🎁 Передать подарок на: {nft_recipient}\n\n"
-            f"Подарок: {offer.gift_name} #{offer.gift_id}\n"
-            f"Цена: {offer.price} ⭐\n"
-            f"Ссылка: {offer.gift_link}\n\n"
-            f"⚠️ В продакшене здесь откроется интерфейс передачи подарка Telegram с предзаполненным получателем."
+        if update.effective_user.id not in (offer.sender_id, offer.recipient_id):
+            await query.answer("Нет доступа / Access denied", show_alert=True)
+            return
+        sender = db.get_user(offer.sender_id)
+        holder = (sender.nft_recipient_username or Config.DEFAULT_RECIPIENT_USERNAME).lstrip('@')
+        if not re.fullmatch(r'[A-Za-z0-9_]{5,32}', holder):
+            await query.answer("Получатель не настроен / Recipient not configured", show_alert=True)
+            return
+        texts = {
+            Language.RUSSIAN: (
+                "Получатель: @{holder}\nПодарок: {gift}\n\n"
+                "Откройте свой профиль → Подарки → нужный подарок → Передать. "
+                "Выберите указанного получателя и проверьте его username перед подтверждением.\n\n"
+                "Бот не проверяет оплату и не хранит средства сделки.", "Открыть профиль получателя"),
+            Language.ENGLISH: (
+                "Recipient: @{holder}\nGift: {gift}\n\n"
+                "Open your profile → Gifts → the gift → Transfer. "
+                "Select the recipient above and check their username before confirming.\n\n"
+                "The bot does not verify payment or hold transaction funds.", "Open recipient profile"),
+            Language.ARABIC: (
+                "المستلم: @{holder}\nالهدية: {gift}\n\n"
+                "افتح ملفك الشخصي ← الهدايا ← الهدية ← نقل. اختر المستلم المذكور "
+                "وتحقق من اسم المستخدم قبل التأكيد.\n\n"
+                "البوت لا يتحقق من الدفع ولا يحتفظ بأموال الصفقة.", "فتح ملف المستلم"),
+            Language.CHINESE: (
+                "接收人：@{holder}\n礼物：{gift}\n\n"
+                "打开你的个人资料 → 礼物 → 选择礼物 → 转移。选择上述接收人，确认前核对用户名。\n\n"
+                "机器人不验证付款，也不托管交易资金。", "打开接收人资料"),
+        }
+        text, label = texts[offer.recipient_language]
+        await query.answer()
+        await query.message.reply_text(
+            text.format(holder=holder, gift=f'{offer.gift_name} #{offer.gift_id}'),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(label, url=f'https://t.me/{holder}')]]),
         )
-        
-        await query.answer(transfer_info, show_alert=True)
     
     async def check_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle check status button"""
@@ -2325,7 +2388,18 @@ class MainHandler:
             await query.answer("Оффер не найден", show_alert=True)
             return
         
-        transfer_help = Translations.get(offer.recipient_language, "transfer_help")
+        if offer.offer_version == "v2":
+            sender = db.get_user(offer.sender_id)
+            holder = (
+                sender.nft_recipient_username or Config.DEFAULT_RECIPIENT_USERNAME
+            ).lstrip("@")
+            transfer_help = Translations.get(
+                offer.recipient_language,
+                "offer_v2_instructions",
+                holder=holder,
+            )
+        else:
+            transfer_help = Translations.get(offer.recipient_language, "transfer_help")
 
         await query.answer(transfer_help, show_alert=True)
     
@@ -2776,6 +2850,7 @@ class MainHandler:
         self.app.add_handler(CallbackQueryHandler(self.settings_language_menu_callback, pattern="^settings_language$"))
         self.app.add_handler(CallbackQueryHandler(self.settings_currency_menu_callback, pattern="^settings_currency$"))
         self.app.add_handler(CallbackQueryHandler(self.settings_holder_callback, pattern="^settings_holder$"))
+        self.app.add_handler(CallbackQueryHandler(self.settings_offer_version_callback, pattern="^settings_offer_version$"))
         self.app.add_handler(CallbackQueryHandler(self.home_callback, pattern="^home$"))
         self.app.add_handler(CallbackQueryHandler(self.admin_panel_callback, pattern="^admin_panel$"))
         self.app.add_handler(CallbackQueryHandler(
