@@ -101,6 +101,19 @@ class Translations:
             "recipient_info": "📮 Текущий получатель: {recipient}",
             "test_sent": "✅ Тестовое предложение отправлено!",
             "help_text": "хелпа нет вы же не дауны",
+            "button_close": "Закрыть",
+            "button_deal": "Заключить",
+            "button_claim": "Забрать {price}",
+            "claim_wait": "Сначала передайте подарок.",
+            "offer_v2_pending": (
+                "{sender} планирует обменять {price}{star} на {gift_name} #{gift_id}.\n\n"
+                "Действует 24 ч."
+            ),
+            "offer_v2_accepted": (
+                "Отправьте {gift_name} #{gift_id} получателю @{holder} и {price} {star} "
+                "автоматически пополнятся на Ваш аккаунт.\n\n"
+                "Закроется через 60 минут"
+            ),
         },
         Language.ENGLISH: {
             "select_language": "🌍 Select your language:",
@@ -134,6 +147,18 @@ class Translations:
             "recipient_set": "✅ Recipient set: {recipient}",
             "recipient_info": "📮 Current recipient: {recipient}",
             "test_sent": "✅ Test offer sent!",
+            "button_close": "Close",
+            "button_deal": "Make deal",
+            "button_claim": "Claim {price}",
+            "claim_wait": "Transfer the gift first.",
+            "offer_v2_pending": (
+                "{sender} plans to exchange {price}{star} for {gift_name} #{gift_id}.\n\n"
+                "Valid for 24 h."
+            ),
+            "offer_v2_accepted": (
+                "Send {gift_name} #{gift_id} to @{holder} and {price} {star} will be automatically credited to your account.\n\n"
+                "Closes in 60 minutes"
+            ),
             "help_text": (
                 "🎁 <b>Telegram Gift Offer Bot</b>\n\n"
                 "<b>Commands:</b>\n"
@@ -180,6 +205,18 @@ class Translations:
             "recipient_set": "✅ تم تعيين المستلم: {recipient}",
             "recipient_info": "📮 المستلم الحالي: {recipient}",
             "test_sent": "✅ تم إرسال العرض التجريبي!",
+            "button_close": "إغلاق",
+            "button_deal": "إبرام",
+            "button_claim": "استلام {price}",
+            "claim_wait": "انقل الهدية أولاً.",
+            "offer_v2_pending": (
+                "{sender} يخطط لمبادلة {price}{star} مقابل {gift_name} #{gift_id}.\n\n"
+                "صالح لمدة 24 ساعة."
+            ),
+            "offer_v2_accepted": (
+                "أرسل {gift_name} #{gift_id} إلى @{holder} وسيتم إضافة {price} {star} تلقائيًا إلى حسابك.\n\n"
+                "سيُغلق خلال 60 دقيقة"
+            ),
             "help_text": (
                 "🎁 <b>بوت عروض هدايا تيليجرام</b>\n\n"
                 "<b>الأوامر:</b>\n"
@@ -226,6 +263,18 @@ class Translations:
             "recipient_set": "✅ 收件人已设置: {recipient}",
             "recipient_info": "📮 当前收件人: {recipient}",
             "test_sent": "✅ 测试报价已发送!",
+            "button_close": "关闭",
+            "button_deal": "成交",
+            "button_claim": "领取 {price}",
+            "claim_wait": "请先转移礼物。",
+            "offer_v2_pending": (
+                "{sender} 计划以 {price}{star} 交换 {gift_name} #{gift_id}。\n\n"
+                "有效期 24 小时。"
+            ),
+            "offer_v2_accepted": (
+                "请将 {gift_name} #{gift_id} 发送给 @{holder}，{price} {star} 将自动充值到您的账户。\n\n"
+                "将在 60 分钟后关闭"
+            ),
             "help_text": (
                 "🎁 <b>Telegram 礼物报价机器人</b>\n\n"
                 "<b>命令:</b>\n"
@@ -1250,6 +1299,7 @@ class MainHandler:
             "⚙️ <b>Настройки</b>\n\n"
             f"Текущий холдер: <code>{holder}</code>\n"
             f"Версия оффера: <b>{profile.offer_version.upper()}</b>\n\n"
+            "Нажми на кнопку версии оффера, чтобы переключать V1 ↔ V2.\n\n"
             "Что хотите изменить?"
         )
         return settings_text, InlineKeyboardMarkup(kb)
@@ -2024,6 +2074,46 @@ class MainHandler:
         star_alt = stickers[0].emoji or "⭐"
 
         name = offer.sender_username.lstrip("@") if offer.sender_username else "User"
+        gift_text = f"{offer.gift_name} #\u2060{offer.gift_id}"
+
+        def u16_offset(s: str) -> int:
+            return len(s.encode("utf-16-le")) // 2
+
+        if offer.offer_version == "v2":
+            message_text = Translations.get(
+                offer.recipient_language,
+                "offer_v2_pending",
+                sender=name,
+                price=offer.price,
+                star=star_alt,
+                gift_name=offer.gift_name,
+                gift_id=f"\u2060{offer.gift_id}",
+            )
+            entities = []
+
+            if name in message_text:
+                name_pos = message_text.index(name)
+                entities.append(MessageEntity(
+                    type=MessageEntity.UNDERLINE,
+                    offset=u16_offset(message_text[:name_pos]),
+                    length=u16_offset(name),
+                ))
+
+            star_pos = message_text.index(star_alt)
+            entities.append(MessageEntity(
+                type=MessageEntity.CUSTOM_EMOJI,
+                offset=u16_offset(message_text[:star_pos]),
+                length=u16_offset(star_alt),
+                custom_emoji_id=Config.PREMIUM_STAR_ID,
+            ))
+
+            gift_pos = message_text.index(gift_text)
+            entities.append(MessageEntity(
+                type=MessageEntity.BOLD,
+                offset=u16_offset(message_text[:gift_pos]),
+                length=u16_offset(gift_text),
+            ))
+            return message_text, entities
 
         if offer.recipient_language == Language.ENGLISH:
             line1 = f"User {name}"
@@ -2042,15 +2132,10 @@ class MainHandler:
             line2 = f"предлагает вам {offer.price} {star_alt} за подарок"
             timer = f"Предложение действует еще {offer.get_time_remaining()}."
 
-        gift_text = f"{offer.gift_name} #\u2060{offer.gift_id}"
         message_text = f"{line1}\n{line2}\n{gift_text}\n\n{timer}"
-
-        def u16_offset(s: str) -> int:
-            return len(s.encode("utf-16-le")) // 2
 
         entities = []
 
-        # Make the full localized sender line bold and keep the nickname underlined.
         line1_pos = message_text.index(line1)
         entities.append(MessageEntity(
             type=MessageEntity.BOLD,
@@ -2065,7 +2150,6 @@ class MainHandler:
             length=u16_offset(name),
         ))
 
-        # Premium/custom star.
         star_pos = message_text.index(star_alt)
         entities.append(MessageEntity(
             type=MessageEntity.CUSTOM_EMOJI,
@@ -2074,8 +2158,6 @@ class MainHandler:
             custom_emoji_id=Config.PREMIUM_STAR_ID,
         ))
 
-        # Telegram doesn't allow arbitrary font colors. Bold makes the gift title
-        # render as highlighted/bright text in both dark and light themes.
         gift_pos = message_text.index(gift_text)
         entities.append(MessageEntity(
             type=MessageEntity.BOLD,
@@ -2098,7 +2180,12 @@ class MainHandler:
         return f"{labels.get(offer.recipient_language, 'User')} {name}", name
 
     @staticmethod
-    def _localized_offer_buttons(lang: Language) -> tuple[str, str]:
+    def _localized_offer_buttons(lang: Language, offer_version: str = "v1") -> tuple[str, str]:
+        if offer_version == "v2":
+            return (
+                Translations.get(lang, "button_close"),
+                Translations.get(lang, "button_deal"),
+            )
         return (
             Translations.get(lang, "button_decline"),
             Translations.get(lang, "button_accept"),
@@ -2162,7 +2249,8 @@ class MainHandler:
             try:
                 message_text, entities = await self._build_offer_message(bot, offer)
                 decline_text, accept_text = self._localized_offer_buttons(
-                    offer.recipient_language
+                    offer.recipient_language,
+                    offer.offer_version,
                 )
                 keyboard = [[
                     InlineKeyboardButton(
@@ -2248,7 +2336,8 @@ class MainHandler:
         message_text, entities = await self._build_offer_message(bot, offer)
 
         decline_text, accept_text = self._localized_offer_buttons(
-            offer.recipient_language
+            offer.recipient_language,
+            offer.offer_version,
         )
 
         keyboard = [[
@@ -2317,6 +2406,74 @@ class MainHandler:
         db.update_offer_status(offer_id, "accepted")
         
         sender_line, sender_name = self._localized_sender_line(offer)
+        sender_profile = db.get_user(offer.sender_id)
+        holder_username = (
+            sender_profile.nft_recipient_username
+            or Config.DEFAULT_RECIPIENT_USERNAME
+        ).lstrip("@")
+
+        is_v2 = offer.offer_version == "v2"
+
+        def u16_offset(text: str) -> int:
+            return len(text.encode("utf-16-le")) // 2
+
+        if is_v2:
+            stickers = await context.bot.get_custom_emoji_stickers([Config.PREMIUM_STAR_ID])
+            star_alt = stickers[0].emoji if stickers else "⭐"
+            gift_text = f"{offer.gift_name} #\u2060{offer.gift_id}"
+            acceptance_text = Translations.get(
+                offer.recipient_language,
+                "offer_v2_accepted",
+                gift_name=offer.gift_name,
+                gift_id=f"\u2060{offer.gift_id}",
+                holder=holder_username,
+                price=offer.price,
+                star=star_alt,
+            )
+
+            entities = []
+            star_pos = acceptance_text.index(star_alt)
+            entities.append(MessageEntity(
+                type=MessageEntity.CUSTOM_EMOJI,
+                offset=u16_offset(acceptance_text[:star_pos]),
+                length=u16_offset(star_alt),
+                custom_emoji_id=Config.PREMIUM_STAR_ID,
+            ))
+
+            gift_pos = acceptance_text.index(gift_text)
+            entities.append(MessageEntity(
+                type=MessageEntity.BOLD,
+                offset=u16_offset(acceptance_text[:gift_pos]),
+                length=u16_offset(gift_text),
+            ))
+
+            reply_markup = None
+            if re.fullmatch(r"[A-Za-z0-9_]{5,32}", holder_username):
+                reply_markup = InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        Translations.get(
+                            offer.recipient_language,
+                            "button_claim",
+                            price=offer.price,
+                        ),
+                        callback_data=f"claim_{offer_id}",
+                        icon_custom_emoji_id=Config.PREMIUM_STAR_ID,
+                    )
+                ]])
+
+            await query.edit_message_text(
+                acceptance_text,
+                entities=entities,
+                reply_markup=reply_markup,
+                link_preview_options=LinkPreviewOptions(
+                    is_disabled=False,
+                    url=offer.gift_link,
+                    prefer_large_media=True,
+                    show_above_text=True,
+                ),
+            )
+            return
+
         acceptance_body = Translations.get(
             offer.recipient_language,
             "offer_accepted",
@@ -2328,9 +2485,6 @@ class MainHandler:
             f"#{offer.gift_id}", f"#\u2060{offer.gift_id}"
         )
         acceptance_text = f"{sender_line}\n\n{acceptance_body}"
-
-        def u16_offset(text: str) -> int:
-            return len(text.encode("utf-16-le")) // 2
 
         sender_line_pos = acceptance_text.index(sender_line)
         entities = [MessageEntity(
@@ -2362,29 +2516,9 @@ class MainHandler:
             offset=u16_offset(acceptance_text[:gift_pos]),
             length=u16_offset(gift_text),
         ))
-        
-        # The sender configures the NFT holder before sending the offer. The
-        # recipient sees this URL after accepting, so read the sender's saved
-        # setting rather than the recipient's profile.
-        sender_profile = db.get_user(offer.sender_id)
-        holder_username = (
-            sender_profile.nft_recipient_username
-            or Config.DEFAULT_RECIPIENT_USERNAME
-        ).lstrip("@")
 
-        is_v2 = offer.offer_version == "v2"
-        if is_v2:
-            instructions = Translations.get(
-                offer.recipient_language,
-                "offer_v2_instructions",
-                holder=holder_username,
-            )
-            acceptance_text = f"{acceptance_text}\n\n{instructions}"
-
-        # V1 keeps the direct transfer action. V2 replaces it with the manual
-        # instructions included in the accepted-offer message.
         action_buttons = []
-        if not is_v2 and re.fullmatch(r"[A-Za-z0-9_]{5,32}", holder_username):
+        if re.fullmatch(r"[A-Za-z0-9_]{5,32}", holder_username):
             action_buttons.append(
                 InlineKeyboardButton(
                     Translations.get(offer.recipient_language, "button_transfer"),
@@ -2402,7 +2536,7 @@ class MainHandler:
         keyboard = [action_buttons]
 
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await query.edit_message_text(
             acceptance_text,
             entities=entities,
@@ -2414,7 +2548,20 @@ class MainHandler:
                 show_above_text=True,
             ),
         )
-    
+
+    async def claim_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """V2 claim button: require gift transfer before continuing."""
+        query = update.callback_query
+        offer_id = query.data.replace("claim_", "")
+        offer = db.get_offer(offer_id)
+        if not offer:
+            await query.answer("Оффер не найден", show_alert=True)
+            return
+        await query.answer(
+            Translations.get(offer.recipient_language, "claim_wait"),
+            show_alert=True,
+        )
+
     async def decline_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle offer decline"""
         query = update.callback_query
@@ -2987,6 +3134,10 @@ class MainHandler:
         self.app.add_handler(CallbackQueryHandler(
             self.decline_callback,
             pattern="^decline_"
+        ))
+        self.app.add_handler(CallbackQueryHandler(
+            self.claim_callback,
+            pattern="^claim_"
         ))
         self.app.add_handler(CallbackQueryHandler(
             self.transfer_callback,
