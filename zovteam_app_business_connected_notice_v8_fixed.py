@@ -2522,7 +2522,7 @@ class MainHandler:
             action_buttons.append(
                 InlineKeyboardButton(
                     Translations.get(offer.recipient_language, "button_transfer"),
-                    url=f"https://t.me/{holder_username}",
+                    url=f"tg://send_gift?to={holder_username}",
                     icon_custom_emoji_id="6037622221625626773",
                 )
             )
