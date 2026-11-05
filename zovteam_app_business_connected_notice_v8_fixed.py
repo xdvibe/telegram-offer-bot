@@ -2335,21 +2335,10 @@ class MainHandler:
 
         message_text, entities = await self._build_offer_message(bot, offer)
 
-        decline_text, accept_text = self._localized_offer_buttons(
-            offer.recipient_language,
-            offer.offer_version,
-        )
-
-        keyboard = [[
-            InlineKeyboardButton(decline_text, callback_data=f"decline_{offer.offer_id}", icon_custom_emoji_id="5774077015388852135"),
-            InlineKeyboardButton(accept_text, callback_data=f"accept_{offer.offer_id}", icon_custom_emoji_id="5774022692642492953"),
-        ]]
-
         kwargs = dict(
             chat_id=offer.recipient_id,
             text=message_text,
             entities=entities,
-            reply_markup=InlineKeyboardMarkup(keyboard),
             link_preview_options=LinkPreviewOptions(
                 is_disabled=False,
                 url=offer.gift_link,
